@@ -1,5 +1,12 @@
 # ControlPlane.ai
 
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110-009688?logo=fastapi&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.32-FF4B4B?logo=streamlit&logoColor=white)
+![scikit--learn](https://img.shields.io/badge/scikit--learn-1.4-F7931E?logo=scikitlearn&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Task](https://img.shields.io/badge/Task-Responsible%20AI%20Governance-9C27B0)
+
 A real-time AI governance layer that sits between an application and any
 LLM, scoring every response across **privacy (PII)**, **hallucination /
 grounding**, and **bias / fairness**, then routing it through a four-tier
