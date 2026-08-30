@@ -1,0 +1,28 @@
+use_case: customer_chatbot
+display_name: "Customer Support Chatbot"
+jurisdiction: "US - CCPA"
+description: >
+  Customer-facing, real-time, high volume. Latency is critical; individual
+  interactions are lower-stakes than regulated decisions, so the policy
+  tolerates more auto-fixing before escalating to a human.
+latency_budget_ms: 300
+
+detectors_enabled: [pii, grounding, bias]
+
+# How much each risk type matters for THIS use case (0-100).
+# Multiplied by detector confidence (0-1) to get a finding's risk score.
+severity_weights:
+  pii: 70
+  hallucination: 55
+  bias: 65
+
+# Risk-score bands that decide the action tier.
+thresholds:
+  allow_max: 25       # risk <= 25       -> ALLOW
+  autofix_max: 55      # 25 < risk <= 55  -> AUTO_FIX
+  escalate_max: 80      # 55 < risk <= 80  -> ESCALATE
+                          # risk > 80        -> BLOCK
+
+# Caps how many escalations per 1000 requests we assume a review team
+# can realistically handle for this use case (queue-aware throttling).
+review_queue_budget_per_1000: 40

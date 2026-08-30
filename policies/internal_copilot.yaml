@@ -1,0 +1,22 @@
+use_case: internal_copilot
+display_name: "Internal Knowledge Copilot"
+jurisdiction: "US - internal governance"
+description: >
+  Internal employees asking questions against internal documentation.
+  Lower external liability than customer-facing or regulated decisions,
+  but grounding still matters since employees act on the answers.
+latency_budget_ms: 800
+
+detectors_enabled: [pii, grounding, bias]
+
+severity_weights:
+  pii: 60
+  hallucination: 60
+  bias: 50
+
+thresholds:
+  allow_max: 30
+  autofix_max: 60
+  escalate_max: 85
+
+review_queue_budget_per_1000: 60

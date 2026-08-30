@@ -1,0 +1,24 @@
+use_case: decision_support
+display_name: "Decision-Support Tool (Regulated Workflow)"
+jurisdiction: "EU - GDPR + sector regulation"
+description: >
+  Embedded in a regulated workflow (e.g. lending, hiring, healthcare
+  triage support). Individual outputs directly influence high-stakes
+  decisions about real people, so risk tolerance is deliberately the
+  lowest of the three use cases, even at the cost of more escalations
+  and higher latency.
+latency_budget_ms: 2000
+
+detectors_enabled: [pii, grounding, bias]
+
+severity_weights:
+  pii: 90
+  hallucination: 85
+  bias: 95
+
+thresholds:
+  allow_max: 15
+  autofix_max: 35
+  escalate_max: 60
+
+review_queue_budget_per_1000: 150
