@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app import policy as policy_engine
-from app import llm_client, audit_log, feedback, pipeline
+from app import llm_client, audit_log, feedback, pipeline, cost_control
 
 app = FastAPI(title="ControlPlane.ai Prototype API", version="0.1.0")
 
@@ -66,6 +66,11 @@ def override(req: OverrideRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.get("/overrides")
+def get_overrides(use_case: str):
+    return audit_log.overrides_for_use_case(use_case)
+
+
 @app.get("/audit_log")
 def get_audit_log(use_case: str = None, limit: int = 50):
     return audit_log.recent_entries(use_case, limit)
@@ -79,6 +84,12 @@ def get_calibration(use_case: str):
 @app.get("/metrics")
 def get_metrics():
     return audit_log.metrics_summary()
+
+
+@app.post("/cache/reset")
+def reset_cache():
+    cost_control.reset_cache()
+    return {"status": "cache cleared"}
 
 
 @app.get("/health")

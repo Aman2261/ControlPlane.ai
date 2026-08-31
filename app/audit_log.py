@@ -40,7 +40,13 @@ def init_db():
                 findings_json TEXT,
                 overall_risk REAL,
                 decision_tier TEXT,
-                throttled_from_escalate INTEGER DEFAULT 0
+                throttled_from_escalate INTEGER DEFAULT 0,
+                complexity TEXT,
+                estimated_cost REAL DEFAULT 0,
+                cache_hit INTEGER DEFAULT 0,
+                cache_similarity REAL,
+                cost_saved REAL DEFAULT 0,
+                detection_latency_ms REAL DEFAULT 0
             )
         """)
         conn.execute("""
@@ -59,14 +65,18 @@ def init_db():
 
 def write_entry(use_case: str, jurisdiction: str, policy_version: str,
                  scenario_id: Optional[str], request_text: str,
-                 raw_response_text: str, decision: Dict[str, Any]) -> int:
+                 raw_response_text: str, decision: Dict[str, Any],
+                 cost_info: Optional[Dict[str, Any]] = None) -> int:
+    cost_info = cost_info or {}
     with _conn() as conn:
         cur = conn.execute("""
             INSERT INTO audit_log
                 (timestamp, use_case, jurisdiction, policy_version, scenario_id,
                  request_text, raw_response_text, delivered_text, findings_json,
-                 overall_risk, decision_tier, throttled_from_escalate)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 overall_risk, decision_tier, throttled_from_escalate,
+                 complexity, estimated_cost, cache_hit, cache_similarity,
+                 cost_saved, detection_latency_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             datetime.now(timezone.utc).isoformat(),
             use_case, jurisdiction, policy_version, scenario_id,
@@ -74,6 +84,12 @@ def write_entry(use_case: str, jurisdiction: str, policy_version: str,
             json.dumps(decision["findings"]),
             decision["overall_risk"], decision["tier"],
             int(decision["throttled_from_escalate"]),
+            cost_info.get("complexity"),
+            cost_info.get("estimated_cost", 0.0),
+            int(cost_info.get("cache_hit", False)),
+            cost_info.get("cache_similarity"),
+            cost_info.get("cost_saved", 0.0),
+            cost_info.get("detection_latency_ms", 0.0),
         ))
         conn.commit()
         return cur.lastrowid
@@ -142,8 +158,21 @@ def metrics_summary() -> Dict[str, Any]:
         """).fetchall()
         total_requests = conn.execute("SELECT COUNT(*) c FROM audit_log").fetchone()["c"]
         total_overrides = conn.execute("SELECT COUNT(*) c FROM reviewer_overrides").fetchone()["c"]
+        cost_row = conn.execute("""
+            SELECT
+                COALESCE(SUM(estimated_cost), 0) total_cost,
+                COALESCE(SUM(cost_saved), 0) total_saved,
+                COALESCE(SUM(cache_hit), 0) cache_hits,
+                COALESCE(AVG(detection_latency_ms), 0) avg_latency_ms
+            FROM audit_log
+        """).fetchone()
         return {
             "by_use_case_tier": [dict(r) for r in by_use_case],
             "total_requests": total_requests,
             "total_overrides": total_overrides,
+            "total_cost": round(cost_row["total_cost"], 5),
+            "total_cost_saved": round(cost_row["total_saved"], 5),
+            "cache_hits": cost_row["cache_hits"],
+            "cache_hit_rate": round(cost_row["cache_hits"] / total_requests, 2) if total_requests else 0.0,
+            "avg_detection_latency_ms": round(cost_row["avg_latency_ms"], 2),
         }

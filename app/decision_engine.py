@@ -63,11 +63,15 @@ def _tier_for_risk(risk: float, thresholds: dict) -> str:
     return "BLOCK"
 
 
-def _apply_autofix(response_text: str, scored: List[ScoredFinding]) -> str:
+def _apply_autofix(response_text: str, scored: List[ScoredFinding]):
     """Targeted fixes rather than a full rewrite: redact PII spans, and
-    append an evidence caveat for ungrounded/low-confidence claims."""
+    append an evidence caveat for ungrounded/low-confidence claims.
+    Returns (fixed_text, actions) where actions is a human-readable log
+    of exactly what was changed and why — used to drive the self-healing
+    log in the dashboard."""
     fixed = response_text
     caveats = []
+    actions = []
 
     for sf in scored:
         f = sf.finding
@@ -75,15 +79,16 @@ def _apply_autofix(response_text: str, scored: List[ScoredFinding]) -> str:
             span = f["span"]
             if span and span in fixed:
                 fixed = fixed.replace(span, f"[REDACTED:{f['subtype'].upper()}]")
+                actions.append(f"Redacted {f['subtype']} — \"{span}\"")
         elif f["detector"] == "grounding":
-            caveats.append(
-                f"⚠ Unverified claim: \"{f['span'][:70]}{'...' if len(f['span']) > 70 else ''}\""
-            )
+            short_span = f['span'][:70] + ('...' if len(f['span']) > 70 else '')
+            caveats.append(f"⚠ Unverified claim: \"{short_span}\"")
+            actions.append(f"Added verification caveat — \"{short_span}\"")
 
     if caveats:
         fixed = fixed.strip() + "\n\n[ControlPlane note — please verify: " + " | ".join(caveats) + "]"
 
-    return fixed
+    return fixed, actions
 
 
 def decide(response_text: str, findings: List[dict], policy: dict,
@@ -103,14 +108,22 @@ def decide(response_text: str, findings: List[dict], policy: dict,
         throttled = True
 
     delivered_text = response_text
+    actions = []
     if tier == "AUTO_FIX":
-        delivered_text = _apply_autofix(response_text, scored)
+        delivered_text, actions = _apply_autofix(response_text, scored)
+        if throttled:
+            actions.append("Escalation downgraded to auto-fix — review queue over budget")
     elif tier == "BLOCK":
         delivered_text = (
             "This response was withheld by ControlPlane because it exceeded "
             "the configured risk threshold for this use case. A safe "
             "fallback is shown here while the issue is reviewed."
         )
+        actions.append("Blocked — risk exceeded the configured threshold for this use case")
+    elif tier == "ESCALATE":
+        actions.append("Held for human review — risk exceeds the auto-fix threshold")
+    else:
+        actions.append("Delivered as-is — risk within the allow threshold")
 
     return {
         "tier": tier,
@@ -119,6 +132,7 @@ def decide(response_text: str, findings: List[dict], policy: dict,
         "findings": [
             {**sf.finding, "risk_score": sf.risk_score} for sf in scored
         ],
+        "actions": actions,
         "delivered_text": delivered_text,
         "policy_version": policy["policy_version"],
         "thresholds_used": thresholds,

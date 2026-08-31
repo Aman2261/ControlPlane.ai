@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Generated at runtime
+data/controlplane.db
+data/*.db
+
+# Streamlit
+.streamlit/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

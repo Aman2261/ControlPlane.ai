@@ -43,6 +43,14 @@ st.title("🛡️ ControlPlane.ai — Prototype")
 st.caption("Real-time AI governance layer — run a scenario through the pipeline, "
            "watch the detectors fire, and see the policy-driven decision.")
 
+# ---- top-level stat bar ------------------------------------------------
+_m = audit_log.metrics_summary()
+s1, s2, s3, s4 = st.columns(4)
+s1.metric("Requests processed", _m["total_requests"])
+s2.metric("Cache hit rate", f"{_m['cache_hit_rate']*100:.0f}%")
+s3.metric("Cost saved (cache)", f"${_m['total_cost_saved']:.4f}")
+s4.metric("Avg. detection latency", f"{_m['avg_detection_latency_ms']:.1f} ms")
+
 use_cases = policy_engine.list_use_cases()
 tab_run, tab_audit, tab_review, tab_metrics = st.tabs(
     ["▶ Run a request", "📜 Audit log", "🧑‍⚖️ Reviewer queue", "📊 Metrics & calibration"]
@@ -75,18 +83,38 @@ with tab_run:
                 "Demo scenario", [s["id"] for s in scenarios],
                 format_func=lambda sid: next(s["title"] for s in scenarios if s["id"] == sid),
             )
+            st.caption("💡 Run the same scenario twice in a row to see the semantic "
+                       "cache hit — the second run costs $0 and skips detection entirely.")
             run = st.button("▶ Run through ControlPlane", type="primary", use_container_width=True)
 
     with col_b:
         if 'scenarios' in dir() and scenarios and run:
             result = pipeline.run_scenario(scenario_id, use_case)
             d = result["decision"]
+            c = result["cost"]
 
             st.subheader(result["scenario"]["title"])
             st.markdown(f"**Prompt:** {result['scenario']['prompt']}")
 
             st.markdown("**Raw model response:**")
             st.info(result["raw_response"])
+
+            # ---- cost of THIS response — prominent, per-request, not aggregate ----
+            st.markdown("---")
+            if c["cache_hit"]:
+                cost_col, saved_col = st.columns(2)
+                cost_col.metric("💵 Cost of this response", "$0.00000", delta="cache hit — no generation cost")
+                saved_col.metric("💰 Saved vs. a fresh call", f"${c['cost_saved']:.5f}",
+                                  delta=f"similarity {c['cache_similarity']:.2f}")
+                st.caption("Served from the semantic cache — detection was skipped entirely for this request.")
+            else:
+                st.metric("💵 Cost of this response", f"${c['estimated_cost']:.5f}",
+                           delta=f"{c['complexity']} query", delta_color="off")
+
+            cc1, cc2 = st.columns(2)
+            cc1.metric("Detection latency", f"{c['detection_latency_ms']:.2f} ms")
+            cc2.metric("Cache size (this use case)", c["cache_size"])
+            st.markdown("---")
 
             st.markdown("**Findings:**")
             if d["findings"]:
@@ -124,8 +152,13 @@ with tab_audit:
     if entries:
         df = pd.DataFrame(entries)[
             ["id", "timestamp", "use_case", "decision_tier", "overall_risk",
-             "policy_version", "scenario_id", "throttled_from_escalate"]
+             "complexity", "estimated_cost", "cache_hit", "cost_saved",
+             "detection_latency_ms", "policy_version", "scenario_id",
+             "throttled_from_escalate"]
         ]
+        df["estimated_cost"] = df["estimated_cost"].apply(lambda v: f"${v:.5f}")
+        df["cost_saved"] = df["cost_saved"].apply(lambda v: f"${v:.5f}")
+        df = df.rename(columns={"estimated_cost": "cost ($)", "cost_saved": "saved ($)"})
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
         st.info("No requests logged yet — run a scenario in the first tab.")
@@ -186,6 +219,24 @@ with tab_metrics:
         )
     else:
         st.info("No traffic yet — run some scenarios in the first tab.")
+
+    st.subheader("Cost & caching")
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric("Total cost spent", f"${metrics['total_cost']:.5f}")
+    mc2.metric("Total cost saved by cache", f"${metrics['total_cost_saved']:.5f}")
+    mc3.metric("Cache hit rate", f"{metrics['cache_hit_rate']*100:.0f}%")
+    mc4.metric("Avg. detection latency", f"{metrics['avg_detection_latency_ms']:.1f} ms")
+
+    all_entries = audit_log.recent_entries(None, limit=200)
+    if all_entries:
+        cost_df = pd.DataFrame(all_entries)[["id", "use_case", "complexity", "estimated_cost", "cache_hit", "cost_saved"]]
+        cost_df = cost_df.sort_values("id")
+        cost_df["cumulative_cost"] = cost_df["estimated_cost"].cumsum()
+        cost_df["cumulative_saved"] = cost_df["cost_saved"].cumsum()
+        st.caption("Cumulative spend vs. cumulative savings from the semantic cache, in request order:")
+        st.line_chart(cost_df.set_index("id")[["cumulative_cost", "cumulative_saved"]])
+    else:
+        st.info("No cost data yet — run some scenarios, then run the same one again to trigger a cache hit.")
 
     st.subheader("Detector calibration (from reviewer feedback)")
     for uc in use_cases:
